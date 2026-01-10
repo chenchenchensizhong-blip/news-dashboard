@@ -6,7 +6,7 @@ from openai import OpenAI
 import os
 
 # --- 页面配置 ---
-st.set_page_config(page_title="全网热点监控 V3.6 (Llama 3.3)", page_icon="🚀", layout="wide")
+st.set_page_config(page_title="全网热点 V3.7 (云端版)", page_icon="☁️", layout="wide")
 
 st.markdown("""
     <style>
@@ -23,8 +23,8 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🚀 全网热点监控中心 (V3.6 最新模型版)")
-st.caption("已升级至 Llama 3.3 70B | 极速响应 | 兼容 DeepSeek/Kimi")
+st.title("☁️ 全网热点监控 (V3.7 云端适配版)")
+st.caption("逻辑修正 | 增强反爬伪装 | 移除代理强制限制")
 
 # --- 0. 控制台 & 设置 ---
 with st.sidebar:
@@ -34,48 +34,62 @@ with st.sidebar:
         st.rerun()
     
     st.markdown("---")
-    st.header("🤖 AI 配置 (Groq)")
-    
-    # 默认地址
+    st.header("🤖 AI 配置")
     api_base = st.text_input("API Base URL", value="https://api.groq.com/openai/v1")
-    
-    api_key = st.text_input("API Key", type="password", help="在此填入 Groq 的 gsk_... Key")
-    
-    # === 关键修改：更新为 Llama 3.3 最新模型 ===
-    # 旧的 llama3-70b-8192 已下架
-    # 新的推荐模型是: llama-3.3-70b-versatile
+    api_key = st.text_input("API Key", type="password")
     model_name = st.text_input("模型名称", value="llama-3.3-70b-versatile")
     
     st.markdown("---")
     st.header("🌐 网络设置")
-    proxy_port = st.text_input("本地代理端口 (VPN)", value="7897")
     
+    # === 关键修改：增加“云端模式”开关 ===
+    # 默认勾选，勾选后，海外平台不再强制检查 PROXIES
+    is_cloud_mode = st.checkbox("我是云端部署 (Cloud Mode)", value=True, help="勾选后，程序会认为你在美国服务器，直接直连海外平台")
+    
+    proxy_port = st.text_input("本地代理端口 (仅本地需填)", value="")
+    
+    PROXIES = None
     if proxy_port:
         proxy_url = f"http://127.0.0.1:{proxy_port}"
         PROXIES = {"http": proxy_url, "https": proxy_url}
-        st.success(f"爬虫代理: {proxy_port}")
-        
-        # 强制注入 AI 代理
         os.environ["HTTP_PROXY"] = proxy_url
         os.environ["HTTPS_PROXY"] = proxy_url
-        st.success(f"AI 代理: {proxy_port} (环境注入)")
+        st.success(f"本地代理已启用: {proxy_port}")
     else:
-        PROXIES = None
+        # 清理环境变量，防止干扰
         os.environ.pop("HTTP_PROXY", None)
         os.environ.pop("HTTPS_PROXY", None)
-        st.warning("无代理")
+        if is_cloud_mode:
+            st.info("☁️ 云端直连模式：无需代理")
 
 def get_html(url, use_proxy=False):
+    # === 关键修改：增强 Headers 伪装 ===
+    # 模拟最新的 Chrome 浏览器，增加 Referer 和 Language
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Upgrade-Insecure-Requests": "1"
     }
+    
     try:
-        p = PROXIES if use_proxy else None
-        response = requests.get(url, headers=headers, proxies=p, timeout=10)
+        # 如果是云端模式，且是爬海外网，强制不使用代理 (PROXIES=None)
+        # 如果是本地模式，且 use_proxy=True，则使用 PROXIES
+        p = PROXIES if (use_proxy and not is_cloud_mode) else None
+        
+        response = requests.get(url, headers=headers, proxies=p, timeout=15)
         response.encoding = 'utf-8'
-        return response.text if response.status_code == 200 else None
-    except: return None
+        
+        if response.status_code == 200:
+            return response.text
+        else:
+            print(f"URL: {url} 返回状态码: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"请求报错: {e}")
+        return None
 
 # --- 1. 爬虫模块 ---
 
@@ -100,8 +114,18 @@ def scrape_baidu():
 def scrape_weibo():
     api_url = "https://weibo.com/ajax/side/hotSearch"
     try:
-        headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://weibo.com/"}
+        # 微博 API 极度敏感，增加 Cookie 伪装尝试
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            "Referer": "https://weibo.com/",
+            "X-Requested-With": "XMLHttpRequest"
+        }
+        # 微博在云端可能因为 IP 原因直接 403，这里做个容错
         resp = requests.get(api_url, headers=headers, timeout=5)
+        if resp.status_code != 200:
+            print(f"微博 API 状态码: {resp.status_code}")
+            return pd.DataFrame()
+            
         data = resp.json()
         realtime_list = data['data']['realtime']
         result = []
@@ -120,11 +144,12 @@ def scrape_weibo():
 def scrape_bilibili():
     api_url = "https://api.bilibili.com/x/web-interface/ranking/v2?rid=0&type=all"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
         "Referer": "https://www.bilibili.com/v/popular/rank/all"
     }
     try:
         resp = requests.get(api_url, headers=headers, timeout=5)
+        if resp.status_code != 200: return pd.DataFrame()
         json_data = resp.json()
         video_list = json_data['data']['list']
         data = []
@@ -141,7 +166,10 @@ def scrape_bilibili():
 @st.cache_data(ttl=3600)
 def scrape_overseas(platform):
     url = "https://kworb.net/youtube/trending_overall.html" if platform == "youtube" else "https://getdaytrends.com/"
+    
+    # 关键：这里传递 use_proxy=True，但 get_html 内部会判断 if is_cloud_mode
     html = get_html(url, use_proxy=True)
+    
     if not html: return pd.DataFrame()
     soup = BeautifulSoup(html, 'lxml')
     data = []
@@ -178,11 +206,17 @@ def generate_ai_report(dfs_dict, api_key, api_base, model_name):
         return
 
     prompt_text = "你是一位专业的全网舆情分析师。以下是当前各大平台的热搜前10名数据：\n\n"
+    has_data = False
     for platform, df in dfs_dict.items():
         if not df.empty:
+            has_data = True
             titles = df['标题'].tolist()
             prompt_text += f"【{platform}】：{', '.join(titles)}\n"
     
+    if not has_data:
+        st.warning("⚠️ 没有抓取到任何数据，AI 无法分析。请检查网络或刷新重试。")
+        return
+
     prompt_text += """
     \n请根据以上数据，用中文生成一份简报（Markdown格式）：
     1. **全网核心焦点**：用一句话总结当前不论国内还是国外，大家最关注的一件事。
@@ -193,8 +227,7 @@ def generate_ai_report(dfs_dict, api_key, api_base, model_name):
 
     try:
         client = OpenAI(api_key=api_key, base_url=api_base)
-        
-        with st.spinner(f"🚀 正在呼叫 {model_name} 进行光速分析..."):
+        with st.spinner(f"🚀 正在呼叫 {model_name} 分析数据..."):
             completion = client.chat.completions.create(
                 model=model_name,
                 messages=[
@@ -204,15 +237,12 @@ def generate_ai_report(dfs_dict, api_key, api_base, model_name):
                 temperature=0.7,
             )
             ai_content = completion.choices[0].message.content
-            
             st.markdown('<div class="ai-report">', unsafe_allow_html=True)
             st.markdown("### 🚀 AI 全网舆情深度简报")
             st.markdown(ai_content)
             st.markdown('</div>', unsafe_allow_html=True)
-            
     except Exception as e:
         st.error(f"❌ AI 分析失败: {e}")
-        st.warning("提示：如果遇到 'model decommissioned' 错误，请在侧边栏手动将模型名称改为 'llama-3.3-70b-versatile'")
 
 # --- 3. UI 渲染 ---
 
@@ -221,7 +251,7 @@ def render_column(title, emoji, df):
         st.markdown(f"### {emoji} {title}")
         st.markdown("---")
         if df.empty:
-            st.warning("暂无数据")
+            st.caption("⚠️ 暂无数据 (可能被拦截)")
         else:
             for _, row in df.iterrows():
                 st.markdown(f"**{row['排名']}. [{row['标题']}]({row['链接']})**")
@@ -233,11 +263,15 @@ def render_column(title, emoji, df):
                 st.markdown("---")
 
 # --- 主程序 ---
+
+# 判断逻辑：如果是云端模式，海外平台强制不检查 PROXIES 变量
+run_overseas = True if is_cloud_mode else (PROXIES is not None)
+
 df_baidu = scrape_baidu()
 df_weibo = scrape_weibo()
 df_bili = scrape_bilibili()
-df_yt = scrape_overseas("youtube") if PROXIES else pd.DataFrame()
-df_x = scrape_overseas("x") if PROXIES else pd.DataFrame()
+df_yt = scrape_overseas("youtube") if run_overseas else pd.DataFrame()
+df_x = scrape_overseas("x") if run_overseas else pd.DataFrame()
 
 c1, c2, c3 = st.columns(3)
 with c1: render_column("百度热搜", "🇨🇳", df_baidu)
@@ -248,12 +282,11 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 c4, c5, c6 = st.columns(3)
 with c4:
-    if PROXIES: render_column("YouTube", "🟥", df_yt)
-    else: st.error("需代理")
+    if run_overseas: render_column("YouTube", "🟥", df_yt)
+    else: st.error("本地需配置代理")
 with c5:
-    if PROXIES: render_column("Twitter (X)", "✖️", df_x)
-    else: st.error("需代理")
+    if run_overseas: render_column("Twitter (X)", "✖️", df_x)
+    else: st.error("本地需配置代理")
 with c6:
     all_data = {"百度": df_baidu, "微博": df_weibo, "B站": df_bili, "YouTube": df_yt, "Twitter": df_x}
-    # 从侧边栏获取配置，并直接调用
     generate_ai_report(all_data, api_key, api_base, model_name)
