@@ -10,17 +10,19 @@ import json
 import time
 
 # --- 页面配置 ---
-st.set_page_config(page_title="全网热点 V4.2 (强力伪装版)", page_icon="🔥", layout="wide")
+st.set_page_config(page_title="全网热点 V4.3 (完美布局)", page_icon="🔥", layout="wide")
 
 st.markdown("""
     <style>
     .block-container {padding-top: 1rem; padding-bottom: 2rem;}
+    /* AI 报告样式优化，适应竖向排版 */
     .ai-report {
         background-color: #f0f2f6; 
-        padding: 20px; 
+        padding: 15px; 
         border-radius: 10px; 
-        border-left: 5px solid #ff4757;
+        border-top: 5px solid #ff4757; /* 改为顶部线条，节省横向空间 */
         font-family: 'Microsoft YaHei', sans-serif;
+        font-size: 14px;
     }
     div[data-testid="stVerticalBlock"] > div {gap: 0.5rem;}
     .demo-tag {
@@ -31,8 +33,8 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🔥 全网热点监控 (V4.2 强力伪装版)")
-st.caption("修复B站/微博反爬 | 动态获取Cookie | 模拟真实浏览器")
+st.title("🔥 全网热点监控 (V4.3 完美布局版)")
+st.caption("8大模块聚合 | 4x2 黄金网格 | 实时 AI 洞察")
 
 # --- 0. 控制台 & 设置 ---
 with st.sidebar:
@@ -64,11 +66,9 @@ with st.sidebar:
 
 # --- 通用工具 ---
 def get_random_ua():
-    """随机生成 User-Agent，防止被标记"""
     return random.choice([
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/123.0.0.0 Safari/537.36"
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
     ])
 
 def get_html(url, use_proxy=False, extra_headers=None):
@@ -81,14 +81,13 @@ def get_html(url, use_proxy=False, extra_headers=None):
     
     try:
         p = PROXIES if (use_proxy and not is_cloud_mode) else None
-        response = requests.get(url, headers=headers, proxies=p, timeout=10)
+        response = requests.get(url, headers=headers, proxies=p, timeout=15)
         response.encoding = 'utf-8'
         return response.text if response.status_code == 200 else None
     except: return None
 
 # --- 1. 模拟数据生成器 ---
 def get_mock_data(platform_name):
-    current_time = datetime.datetime.now().strftime("%H:%M")
     mock_db = {
         "百度": ["中国空间站", "GDP目标", "文旅抢人", "国产大模型", "五一车票"],
         "微博": ["微博反爬升级中", "建议稍后刷新", "正在尝试破解", "演示数据A", "演示数据B"],
@@ -109,7 +108,7 @@ def get_mock_data(platform_name):
         })
     return pd.DataFrame(data)
 
-# --- 2. 爬虫模块 (修复重点) ---
+# --- 2. 爬虫模块 ---
 
 @st.cache_data(ttl=3600)
 def scrape_baidu():
@@ -127,21 +126,12 @@ def scrape_baidu():
         except: continue
     return pd.DataFrame(data) if data else get_mock_data("百度")
 
-# === 微博重构：Session 会话保持 ===
 @st.cache_data(ttl=3600)
 def scrape_weibo():
-    # 尝试使用 requests.Session() 来自动处理 Cookie
     session = requests.Session()
-    session.headers.update({
-        "User-Agent": get_random_ua(),
-        "Referer": "https://weibo.com/"
-    })
-    
-    # 方案 A: PC端 Ajax (数据最全)
+    session.headers.update({"User-Agent": get_random_ua(), "Referer": "https://weibo.com/"})
     try:
-        # 先访问一下主页，骗取 Cookie
         session.get("https://weibo.com/", timeout=5)
-        # 再访问接口
         resp = session.get("https://weibo.com/ajax/side/hotSearch", timeout=5)
         if resp.status_code == 200:
             data = resp.json()['data']['realtime']
@@ -152,12 +142,9 @@ def scrape_weibo():
                 desc = f"【{item.get('label_name','')}】" if item.get('label_name') else ""
                 result.append({"排名": idx+1, "标题": title, "链接": f"https://s.weibo.com/weibo?q={title}", "热度": str(item.get('num','')), "简介": desc, "is_mock": False})
             if result: return pd.DataFrame(result)
-    except Exception as e: 
-        print(f"微博A方案失败: {e}")
+    except: pass
 
-    # 方案 B: 移动端 (备用)
     try:
-        # 移动端通常不需要复杂的 Cookie
         headers_mobile = {"User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"}
         api_url = "https://m.weibo.cn/api/container/getIndex?containerid=106003type%3D25%26t%3D3%26disable_hot%3D1%26is_ext%3D1"
         resp = requests.get(api_url, headers=headers_mobile, timeout=5)
@@ -168,24 +155,14 @@ def scrape_weibo():
                 title = card['desc']
                 result.append({"排名": idx+1, "标题": title, "链接": card['scheme'], "热度": str(card.get('desc_extr', '')), "简介": "", "is_mock": False})
             if result: return pd.DataFrame(result)
-    except Exception as e:
-        print(f"微博B方案失败: {e}")
-    
+    except: pass
     return get_mock_data("微博")
 
-# === B站重构：严格的 Headers ===
 @st.cache_data(ttl=3600)
 def scrape_bilibili():
-    # B站必须要 Referer，且 UA 要新
-    headers = {
-        "User-Agent": get_random_ua(),
-        "Referer": "https://www.bilibili.com/v/popular/rank/all",
-        "Origin": "https://www.bilibili.com",
-        "Cookie": "b_nut=1712000000;" # 塞一个假 Cookie 有时能绕过检测
-    }
+    headers = {"User-Agent": get_random_ua(), "Referer": "https://www.bilibili.com/v/popular/rank/all", "Cookie": "b_nut=1712000000;"}
     try:
-        api_url = "https://api.bilibili.com/x/web-interface/ranking/v2?rid=0&type=all"
-        resp = requests.get(api_url, headers=headers, timeout=5)
+        resp = requests.get("https://api.bilibili.com/x/web-interface/ranking/v2?rid=0&type=all", headers=headers, timeout=5)
         if resp.status_code == 200:
             data = []
             for idx, v in enumerate(resp.json()['data']['list'][:10]):
@@ -229,13 +206,11 @@ def scrape_overseas(platform):
                 link = f"https://www.youtube.com/watch?v={href.split('video/')[1].replace('.html','')}" if "video/" in href else href
                 data.append({"排名": idx+1, "标题": link_tag.text.strip(), "链接": link, "is_mock": False})
         elif platform == "x":
-            # 针对 getdaytrends 的解析优化
             rows = soup.select('table.table tbody tr')
             for idx, row in enumerate(rows[:10]):
                 link_tag = row.find('a')
                 if link_tag:
                     title = link_tag.text.strip()
-                    # 修复链接：把 # 替换为 %23
                     link = "https://twitter.com/search?q=" + title.replace("#", "%23")
                     heat = row.find('small').text.strip() if row.find('small') else ""
                     data.append({"排名": idx+1, "标题": title, "链接": link, "热度": heat, "is_mock": False})
@@ -244,11 +219,16 @@ def scrape_overseas(platform):
 
 # --- 4. AI 分析 ---
 def generate_ai_report(dfs_dict, api_key, api_base, model_name):
+    # 显示标题（与其他列对齐）
+    st.markdown("### 🧠 AI 洞察")
+    st.markdown("---")
+    
     if not api_key:
-        st.info("👈 请输入 API Key 开启 AI 分析")
+        st.info("👈 请配置 API Key")
         return
     
-    prompt = "你是一位社交媒体分析师。以下是全网热搜：\n\n"
+    # 构造 Prompt
+    prompt = "你是一位全网舆情专家。以下是各平台实时热搜：\n\n"
     has_data = False
     for plat, df in dfs_dict.items():
         if not df.empty:
@@ -261,20 +241,19 @@ def generate_ai_report(dfs_dict, api_key, api_base, model_name):
     if not has_data: return
 
     prompt += """
-    \n请生成【全网舆情简报】（Markdown）：
-    1. **超级话题**：全网最炸裂的话题。
-    2. **平台画像**：各平台（抖音/B站 vs 微博/百度）关注点的区别。
-    3. **爆款预测**：预测下一个刷屏梗。
+    \n请生成一份简练的【舆情简报】（Markdown格式，不要太长）：
+    1. **焦点话题**：全网都在看什么？
+    2. **平台差异**：抖音/小红书 vs 微博/B站 vs 海外。
+    3. **趋势预测**：下一个爆点。
     """
     
     try:
         client = OpenAI(api_key=api_key, base_url=api_base)
-        with st.spinner(f"🚀 {model_name} 正在分析..."):
+        with st.spinner(f"🚀 分析中..."):
             completion = client.chat.completions.create(
                 model=model_name, messages=[{"role": "user", "content": prompt}], temperature=0.7
             )
             st.markdown('<div class="ai-report">', unsafe_allow_html=True)
-            st.markdown("### 🧠 AI 全网舆情简报")
             st.markdown(completion.choices[0].message.content)
             st.markdown('</div>', unsafe_allow_html=True)
     except Exception as e: st.error(f"AI 失败: {e}")
@@ -311,21 +290,29 @@ data_map = {
     "Twitter": scrape_overseas("x") if run_overseas else pd.DataFrame()
 }
 
+# === 布局：4 + 4 完美网格 ===
+
+# 第一行：微博 | 抖音 | 百度 | B站
 c1, c2, c3, c4 = st.columns(4)
-with c1: render_col("百度", "🇨🇳", data_map["百度"])
-with c2: render_col("微博", "🍉", data_map["微博"])
-with c3: render_col("抖音", "🎵", data_map["抖音"])
-with c4: render_col("小红书", "📕", data_map["小红书"])
+with c1: render_col("微博", "🍉", data_map["微博"])
+with c2: render_col("抖音", "🎵", data_map["抖音"])
+with c3: render_col("百度", "🇨🇳", data_map["百度"])
+with c4: render_col("B站", "📺", data_map["B站"])
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-c5, c6, c7 = st.columns([1, 1, 1.5])
-with c5: render_col("B站", "📺", data_map["B站"])
+# 第二行：小红书 | Twitter | YouTube | AI简报
+c5, c6, c7, c8 = st.columns(4)
+with c5: render_col("小红书", "📕", data_map["小红书"])
+
 with c6:
-    if run_overseas: render_col("YouTube", "🟥", data_map["YouTube"])
-    else: st.error("需代理")
-with c7:
     if run_overseas: render_col("Twitter", "✖️", data_map["Twitter"])
     else: st.error("需代理")
-    st.markdown("---")
+
+with c7:
+    if run_overseas: render_col("YouTube", "🟥", data_map["YouTube"])
+    else: st.error("需代理")
+
+with c8:
+    # 第8列专门放 AI 报告
     generate_ai_report(data_map, api_key, api_base, model_name)
