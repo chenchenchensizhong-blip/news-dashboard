@@ -2,7 +2,8 @@ import streamlit as st
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
-from openai import OpenAI
+# [修改 1] 引入智谱AI官方SDK
+from zhipuai import ZhipuAI 
 import os
 import random
 import datetime
@@ -10,7 +11,7 @@ import json
 import time
 
 # --- 页面配置 ---
-st.set_page_config(page_title="全网热点 V4.3 (完美布局)", page_icon="🔥", layout="wide")
+st.set_page_config(page_title="全网热点 V4.4 (智谱版)", page_icon="🔥", layout="wide")
 
 st.markdown("""
     <style>
@@ -20,7 +21,7 @@ st.markdown("""
         background-color: #f0f2f6; 
         padding: 15px; 
         border-radius: 10px; 
-        border-top: 5px solid #ff4757; /* 改为顶部线条，节省横向空间 */
+        border-top: 5px solid #3498db; /* 智谱蓝 */
         font-family: 'Microsoft YaHei', sans-serif;
         font-size: 14px;
     }
@@ -33,8 +34,8 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🔥 全网热点监控 (V4.3 完美布局版)")
-st.caption("8大模块聚合 | 4x2 黄金网格 | 实时 AI 洞察")
+st.title("🔥 全网热点监控 (V4.4 智谱适配版)")
+st.caption("8大模块聚合 | 4x2 黄金网格 | 智谱 GLM 实时洞察")
 
 # --- 0. 控制台 & 设置 ---
 with st.sidebar:
@@ -44,10 +45,10 @@ with st.sidebar:
         st.rerun()
     
     st.markdown("---")
-    st.header("🤖 AI 配置")
-    api_base = st.text_input("API Base URL", value="https://api.groq.com/openai/v1")
-    api_key = st.text_input("API Key", type="password")
-    model_name = st.text_input("模型名称", value="llama-3.3-70b-versatile")
+    st.header("🤖 智谱 AI 配置")
+    # [修改 2] 移除Base URL，仅保留API Key和模型名称
+    api_key = st.text_input("智谱 API Key", type="password", help="请前往 bigmodel.cn 获取")
+    model_name = st.text_input("模型名称", value="glm-4-flash", help="推荐 glm-4-flash (快) 或 glm-4")
     
     st.markdown("---")
     st.header("🌐 网络设置")
@@ -217,14 +218,14 @@ def scrape_overseas(platform):
     except: pass
     return pd.DataFrame(data) if data else get_mock_data("YouTube" if platform=="youtube" else "Twitter")
 
-# --- 4. AI 分析 ---
-def generate_ai_report(dfs_dict, api_key, api_base, model_name):
+# --- 4. AI 分析 (适配智谱版) ---
+def generate_ai_report(dfs_dict, api_key, model_name):
     # 显示标题（与其他列对齐）
-    st.markdown("### 🧠 AI 洞察")
+    st.markdown("### 🧠 智谱 AI 洞察")
     st.markdown("---")
     
     if not api_key:
-        st.info("👈 请配置 API Key")
+        st.info("👈 请配置 智谱 API Key")
         return
     
     # 构造 Prompt
@@ -248,10 +249,14 @@ def generate_ai_report(dfs_dict, api_key, api_base, model_name):
     """
     
     try:
-        client = OpenAI(api_key=api_key, base_url=api_base)
-        with st.spinner(f"🚀 分析中..."):
+        # [修改 3] 使用 ZhipuAI Client
+        client = ZhipuAI(api_key=api_key)
+        
+        with st.spinner(f"🚀 智谱 AI ({model_name}) 分析中..."):
             completion = client.chat.completions.create(
-                model=model_name, messages=[{"role": "user", "content": prompt}], temperature=0.7
+                model=model_name, 
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7
             )
             st.markdown('<div class="ai-report">', unsafe_allow_html=True)
             st.markdown(completion.choices[0].message.content)
@@ -315,4 +320,5 @@ with c7:
 
 with c8:
     # 第8列专门放 AI 报告
-    generate_ai_report(data_map, api_key, api_base, model_name)
+    # [修改 4] 移除 api_base 参数
+    generate_ai_report(data_map, api_key, model_name)
